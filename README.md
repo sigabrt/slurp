@@ -7,7 +7,7 @@ Building
 ========
 
 Run
-	make
+```make```
 
 libcurl and liboauth are required.
 
