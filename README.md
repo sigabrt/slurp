@@ -14,9 +14,9 @@ Running
 ./slurp keys.txt [optional output file]
 
 keys.txt (or whatever you choose to call it) is a plain text file containing your Twitter OAuth app information, in this order:
-Consumer key
-Consumer secret
-Access token
-Access token secret
+* Consumer key
+* Consumer secret
+* Access token
+* Access token secret
 
 If you don't have this stuff, log into the Twitter dev center and create a new application.
