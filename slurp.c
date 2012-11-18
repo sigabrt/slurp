@@ -278,7 +278,10 @@ int progress_callback(void *clientp, double dltotal, double dlnow, double ultota
 		else if(timeout->idlestart != 0 &&
 				(time(NULL) - timeout->idlestart) > DATA_TIMEOUT)
 		{
-			// so we return a non-zero value to abort the transfer
+			// so we reset the timer and return a non-zero
+			// value to abort the transfer
+			timeout->lastdl = 0;
+			timeout->idlestart = 0;
 			return 1;
 		}
 	}
