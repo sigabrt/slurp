@@ -6,8 +6,5 @@ slurp is a super simple C utility that, well, slurps down tweets from Twitter's 
 Building
 ========
 
-Run
-```make```
-
-libcurl and liboauth are required.
+Run make. libcurl and liboauth are required.
 
