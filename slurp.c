@@ -18,6 +18,13 @@
 
 #define DATA_TIMEOUT (90)
 
+typedef enum
+{
+	ERROR_TYPE_HTTP,
+	ERROR_TYPE_RATE_LIMITED,
+	ERROR_TYPE_SOCKET,
+} error_type;
+
 struct idletimer
 {
 	int lastdl;
@@ -29,7 +36,7 @@ void read_auth_keys(const char *filename, int bufsize,
 
 void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data);
 
-void reconnect_wait(char bool_httperror);
+void reconnect_wait(error_type error);
 
 int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow);
 
@@ -94,12 +101,12 @@ int main(int argc, const char *argv[])
 		{
 			case 0: // Twitter closed the connection
 				fprintf(stderr, "Connection terminated. Attempting reconnect...\n");
-				reconnect_wait(1);
+				reconnect_wait(ERROR_TYPE_SOCKET);
 				curl_easy_cleanup(curl);
 				curl = curl_easy_init();
 
 				// The signed URL contains a timestamp, so it needs to be
-				// regenerated each time we reconnect or else we'll get a 420
+				// regenerated each time we reconnect or else we'll get a 401
 				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 				config_curlopts(curl, signedurl, out, (void *)&timeout);
 				break;
@@ -118,10 +125,15 @@ int main(int argc, const char *argv[])
 						reconnect = 0;
 						break;
 					case 420:
+						fprintf(stderr, "Received rate limiting response, attempting reconnect...\n");
+						reconnect_wait(ERROR_TYPE_RATE_LIMITED);
+
+						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+						config_curlopts(curl, signedurl, out, (void *)&timeout);
+						break;
 					case 503:
-						// Will attempt reconnect
 						fprintf(stderr, "Received HTTP error %d, attempting reconnect...\n", httpstatus);
-						reconnect_wait(1);
+						reconnect_wait(ERROR_TYPE_HTTP);
 
 						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 						config_curlopts(curl, signedurl, out, (void *)&timeout);
@@ -134,7 +146,7 @@ int main(int argc, const char *argv[])
 				break;
 			case CURLE_ABORTED_BY_CALLBACK:
 				fprintf(stderr, "Timeout, attempting reconnect...\n");
-				reconnect_wait(1);
+				reconnect_wait(ERROR_TYPE_SOCKET);
 
 				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 				config_curlopts(curl, signedurl, out, (void *)&timeout);
@@ -142,7 +154,7 @@ int main(int argc, const char *argv[])
 			default:
 				// Probably a socket error, attempt reconnnect
 				fprintf(stderr, "Unexpected error, attempting reconnect...\n");
-				reconnect_wait(0);
+				reconnect_wait(ERROR_TYPE_SOCKET);
 
 				curl_easy_cleanup(curl);
 				curl = curl_easy_init();
@@ -238,41 +250,53 @@ void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data
  * bool_httperror: whether this was an http error or
  * 		not (i.e. it was a socket error)
  */
-void reconnect_wait(char bool_httperror)
+void reconnect_wait(error_type error)
 {
 	static int http_sleep_s = 5;
+	static int rate_limit_sleep_s = 60;
 	static long sock_sleep_ms = 250;
 
-	if(bool_httperror)
+	struct timespec t;
+	switch(error)
 	{
-		struct timespec t;
-		t.tv_sec = http_sleep_s;
-		t.tv_nsec = 0;
-		nanosleep(&t, NULL);
+		case ERROR_TYPE_HTTP:
+			t.tv_sec = http_sleep_s;
+			t.tv_nsec = 0;
 
-		// As per the streaming endpoint guidelines, double the
-		// delay until 320 seconds is reached
-		http_sleep_s *= 2;
-		if(http_sleep_s > 320)
-		{
-			http_sleep_s = 320;
-		}
-	}
-	else
-	{
-		struct timespec t;
-		t.tv_sec = 0;
-		t.tv_nsec = sock_sleep_ms * MS_TO_NS;
-		nanosleep(&t, NULL);
+			// As per the streaming endpoint guidelines, double the
+			// delay until 320 seconds is reached
+			http_sleep_s *= 2;
+			if(http_sleep_s > 320)
+			{
+				http_sleep_s = 320;
+			}
+			break;
+		case ERROR_TYPE_RATE_LIMITED:
+			t.tv_sec = rate_limit_sleep_s;
+			t.tv_nsec = 0;
 
-		// As per the streaming endpoint guidelines, add 250ms
-		// for each successive attempt until 16 seconds is reached
-		sock_sleep_ms += 250;
-		if(sock_sleep_ms > 16000)
-		{
-			sock_sleep_ms = 16000;
-		}
+			// As per the streaming endpoint guidelines, double the
+			// delay
+			rate_limit_sleep_s *= 2;
+			break;
+		case ERROR_TYPE_SOCKET:
+			t.tv_sec = 0;
+			t.tv_nsec = sock_sleep_ms;
+
+			// As per the streaming endpoint guidelines, add 250ms
+			// for each successive attempt until 16 seconds is reached
+			sock_sleep_ms += 250;
+			if(sock_sleep_ms > 16000)
+			{
+				sock_sleep_ms = 16000;
+			}
+			break;
+		default:
+			t.tv_sec = 0;
+			t.tv_nsec = 0;
+			break;
 	}
+	nanosleep(&t, NULL);
 }
 
 /* progress_callback
