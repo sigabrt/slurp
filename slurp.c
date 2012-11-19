@@ -87,10 +87,22 @@ int main(int argc, const char *argv[])
 
 	int curlstatus, httpstatus;
 	char reconnect = 1;
-	while(reconnect && (curlstatus = curl_easy_perform(curl)))
+	while(reconnect)
 	{
+		curlstatus = curl_easy_perform(curl);
 		switch(curlstatus)
 		{
+			case 0: // Twitter closed the connection
+				fprintf(stderr, "Connection terminated. Attempting reconnect...\n");
+				reconnect_wait(1);
+				curl_easy_cleanup(curl);
+				curl = curl_easy_init();
+
+				// The signed URL contains a timestamp, so it needs to be
+				// regenerated each time we reconnect or else we'll get a 420
+				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+				config_curlopts(curl, signedurl, out, (void *)&timeout);
+				break;
 			case CURLE_HTTP_RETURNED_ERROR:
 				curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpstatus);
 				switch(httpstatus)
@@ -110,6 +122,8 @@ int main(int argc, const char *argv[])
 						// Will attempt reconnect
 						fprintf(stderr, "Received HTTP error %d, attempting reconnect...\n", httpstatus);
 						reconnect_wait(1);
+
+						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 						config_curlopts(curl, signedurl, out, (void *)&timeout);
 						break;
 					default:
@@ -121,14 +135,18 @@ int main(int argc, const char *argv[])
 			case CURLE_ABORTED_BY_CALLBACK:
 				fprintf(stderr, "Timeout, attempting reconnect...\n");
 				reconnect_wait(1);
+
+				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 				config_curlopts(curl, signedurl, out, (void *)&timeout);
 				break;
 			default:
-				// Probably a socket error, do a full cleanup and reconnect
+				// Probably a socket error, attempt reconnnect
 				fprintf(stderr, "Unexpected error, attempting reconnect...\n");
 				reconnect_wait(0);
+
 				curl_easy_cleanup(curl);
 				curl = curl_easy_init();
+				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
 				config_curlopts(curl, signedurl, out, (void *)&timeout);
 				break;
 		}
