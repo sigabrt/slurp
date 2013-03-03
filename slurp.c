@@ -280,8 +280,8 @@ void reconnect_wait(error_type error)
 			rate_limit_sleep_s *= 2;
 			break;
 		case ERROR_TYPE_SOCKET:
-			t.tv_sec = 0;
-			t.tv_nsec = sock_sleep_ms;
+			t.tv_sec = sock_sleep_ms / 1000;
+			t.tv_nsec = (sock_sleep_ms % 1000) * MS_TO_NS;
 
 			// As per the streaming endpoint guidelines, add 250ms
 			// for each successive attempt until 16 seconds is reached
