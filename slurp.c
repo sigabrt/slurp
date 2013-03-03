@@ -87,7 +87,7 @@ int main(int argc, const char *argv[])
 	CURL *curl = curl_easy_init();
 
 	struct idletimer timeout;
-	timeout.lastdl = 0;
+	timeout.lastdl = 1;
 	timeout.idlestart = 0;
 
 	config_curlopts(curl, signedurl, out, (void *)&timeout);
@@ -322,7 +322,7 @@ int progress_callback(void *clientp, double dltotal, double dlnow, double ultota
 		{
 			// so we reset the timer and return a non-zero
 			// value to abort the transfer
-			timeout->lastdl = 0;
+			timeout->lastdl = 1;
 			timeout->idlestart = 0;
 			return 1;
 		}
