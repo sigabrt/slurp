@@ -78,7 +78,7 @@ int main(int argc, const char *argv[])
 		return 1;
 	}
 	
-	const char *url = "https://stream.twitter.com/1/statuses/sample.json";
+	const char *url = "https://stream.twitter.com/1.1/statuses/sample.json";
 
 	// Sign the URL with OAuth
 	char *signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
