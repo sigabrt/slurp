@@ -17,6 +17,13 @@
 #define MS_TO_NS (1000000)
 
 #define DATA_TIMEOUT (90)
+#define MAX_KEYWORDS (16)
+
+static const char *SAMPLE_URL =
+	"https://stream.twitter.com/1.1/statuses/sample.json";
+
+static const char *FILTER_URL =
+	"https://stream.twitter.com/1.1/statuses/filter.json";
 
 typedef enum
 {
@@ -34,27 +41,82 @@ struct idletimer
 void read_auth_keys(const char *filename, int bufsize,
 		char *ckey, char *csecret, char *atok, char *atoksecret);
 
-void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data);
+void config_curlopts(CURL *curl, const char *url, char *postargs, FILE *outfile, void *prog_data);
 
 void reconnect_wait(error_type error);
 
 int progress_callback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow);
 
-int main(int argc, const char *argv[])
+int main(int argc, char *argv[])
 {
-	FILE *out;
-	if(argc == 3)
+	FILE *out = stdout;
+	const char *keyfile = NULL;
+	const char *endpoint = SAMPLE_URL;
+	const char *keywords[MAX_KEYWORDS];
+	unsigned  int keyword_count = 0;
+	int opt;
+	while((opt = getopt(argc, argv, "sfk:")) != -1)
 	{
-		out = fopen(argv[2], "w");
+		switch(opt)
+		{
+			case 's':
+				endpoint = SAMPLE_URL;
+				break;
+			case 'f':
+				endpoint = FILTER_URL;
+				break;
+			case 'k':
+				if(keyword_count >= MAX_KEYWORDS)
+				{
+					break;
+				}
+				else if(strlen(optarg) > 60)
+				{
+					fprintf(stderr, "Keyword too long (omitting): %s\n", optarg);
+					break;
+				}
+				keywords[keyword_count] = optarg;
+				keyword_count++;
+				break;
+			default:
+				break;
+		}
 	}
-	else if(argc == 2)
+	if(optind+1 < argc)
 	{
-		out = stdout;
+		keyfile = argv[optind];
+		out = fopen(argv[optind+1], "w");
+	}
+	else if(optind < argc)
+	{
+		keyfile = argv[optind];
 	}
 	else
 	{
-		printf("usage: %s keyfile [outfile]\n", argv[0]);
-		return 0;
+		fprintf(stderr, "usage: %s [-f -s] keyfile [outfile]\n", argv[0]);
+		return 1;
+	}
+
+	char *url = NULL;
+	if(endpoint == FILTER_URL)
+	{
+		url = (char *)malloc(strlen(endpoint) + (keyword_count * 61) + strlen("?track=") + 1);
+		strcpy(url, FILTER_URL);
+		strcat(url, "?track=");
+		int i;
+		for(i = 0; i < keyword_count; i++)
+		{
+			strcat(url, keywords[i]);
+			if(i+1 < keyword_count)
+			{
+				strcat(url, ",");
+			}
+		}
+	}
+	else if(endpoint == SAMPLE_URL)
+	{
+		url = (char *)malloc(strlen(endpoint)+1);
+		strcpy(url, SAMPLE_URL);
 	}
 
 	// These may be found on your twitter dev page, under "Applications"
@@ -65,7 +127,7 @@ int main(int argc, const char *argv[])
 	char *csecret = (char *)malloc(bufsize * sizeof(char));
 	char *atok = (char *)malloc(bufsize * sizeof(char));
 	char *atoksecret = (char *)malloc(bufsize * sizeof(char));
-	read_auth_keys(argv[1], bufsize, ckey, csecret, atok, atoksecret);
+	read_auth_keys(keyfile, bufsize, ckey, csecret, atok, atoksecret);
 
 	if(ckey == NULL || csecret == NULL ||
 			atok == NULL || atoksecret == NULL)
@@ -78,10 +140,9 @@ int main(int argc, const char *argv[])
 		return 1;
 	}
 	
-	const char *url = "https://stream.twitter.com/1.1/statuses/sample.json";
-
 	// Sign the URL with OAuth
-	char *signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
+	char *postargs;
+	char *signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
 
 	curl_global_init(CURL_GLOBAL_ALL);
 	CURL *curl = curl_easy_init();
@@ -90,7 +151,7 @@ int main(int argc, const char *argv[])
 	timeout.lastdl = 1;
 	timeout.idlestart = 0;
 
-	config_curlopts(curl, signedurl, out, (void *)&timeout);
+	config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 
 	int curlstatus, httpstatus;
 	char reconnect = 1;
@@ -107,8 +168,8 @@ int main(int argc, const char *argv[])
 
 				// The signed URL contains a timestamp, so it needs to be
 				// regenerated each time we reconnect or else we'll get a 401
-				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-				config_curlopts(curl, signedurl, out, (void *)&timeout);
+				signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
+				config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 				break;
 			case CURLE_HTTP_RETURNED_ERROR:
 				curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpstatus);
@@ -128,15 +189,15 @@ int main(int argc, const char *argv[])
 						fprintf(stderr, "Received rate limiting response, attempting reconnect...\n");
 						reconnect_wait(ERROR_TYPE_RATE_LIMITED);
 
-						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-						config_curlopts(curl, signedurl, out, (void *)&timeout);
+						signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
+						config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 						break;
 					case 503:
 						fprintf(stderr, "Received HTTP error %d, attempting reconnect...\n", httpstatus);
 						reconnect_wait(ERROR_TYPE_HTTP);
 
-						signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-						config_curlopts(curl, signedurl, out, (void *)&timeout);
+						signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
+						config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 						break;
 					default:
 						fprintf(stderr, "Unexpected HTTP error %d. Aborting...\n", httpstatus);
@@ -148,8 +209,8 @@ int main(int argc, const char *argv[])
 				fprintf(stderr, "Timeout, attempting reconnect...\n");
 				reconnect_wait(ERROR_TYPE_SOCKET);
 
-				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-				config_curlopts(curl, signedurl, out, (void *)&timeout);
+				signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
+				config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 				break;
 			default:
 				// Probably a socket error, attempt reconnnect
@@ -158,8 +219,8 @@ int main(int argc, const char *argv[])
 
 				curl_easy_cleanup(curl);
 				curl = curl_easy_init();
-				signedurl = oauth_sign_url2(url, NULL, OA_HMAC, "GET", ckey, csecret, atok, atoksecret);
-				config_curlopts(curl, signedurl, out, (void *)&timeout);
+				signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
+				config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 				break;
 		}
 	}
@@ -173,6 +234,7 @@ int main(int argc, const char *argv[])
 	free(atok);
 	free(atoksecret);
 	free(signedurl);
+	free(url);
 
 	fclose(out);
 
@@ -226,10 +288,12 @@ void read_auth_keys(const char *filename, int bufsize,
  * outfile: file stream for retrieved data
  * prog_data: data to send to progress callback function
  */
-void config_curlopts(CURL *curl, const char *url, FILE *outfile, void *prog_data)
+void config_curlopts(CURL *curl, const char *url, char *postargs, FILE *outfile, void *prog_data)
 {
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "tweetslurp/0.1");
+
+	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postargs);
 
 	// libcurl will now fail on an HTTP error (>=400)
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
