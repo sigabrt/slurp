@@ -49,10 +49,32 @@ int progress_callback(void *clientp, double dltotal, double dlnow, double ultota
 
 int main(int argc, char *argv[])
 {
+	// Output file stream
 	FILE *out = stdout;
+
+	// File containing the OAuth keys
 	const char *keyfile = NULL;
+
+	// OAuth keys
+	char *ckey, *csecret, *atok, *atoksecret;
+
+	// Streaming endpoint (no params, just base URL)
 	const char *endpoint = SAMPLE_URL;
+
+	// Full unsigned URL with parameters
+	char *url = NULL;
+
+	// Signed URL
+	char *signedurl = NULL;
+
+	// POST parameters
+	char *postargs = NULL;
+
+	// Search keywords for the filter endpoint
 	const char *keywords[MAX_KEYWORDS];
+
+	// Process command line arguments
+	// ==============================
 	unsigned  int keyword_count = 0;
 	int opt;
 	while((opt = getopt(argc, argv, "sfk:")) != -1)
@@ -97,7 +119,8 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	char *url = NULL;
+	// Generate full URL
+	// =================
 	if(endpoint == FILTER_URL)
 	{
 		url = (char *)malloc(strlen(endpoint) + (keyword_count * 61) + strlen("?track=") + 1);
@@ -119,16 +142,17 @@ int main(int argc, char *argv[])
 		strcpy(url, SAMPLE_URL);
 	}
 
+	// Read the OAuth keys
+	// ===================
 	// These may be found on your twitter dev page, under "Applications"
 	// You will need to create a new app if you haven't already
 	// The four keys should be on separate lines in this order:
 	int bufsize = 64;
-	char *ckey = (char *)malloc(bufsize * sizeof(char));
-	char *csecret = (char *)malloc(bufsize * sizeof(char));
-	char *atok = (char *)malloc(bufsize * sizeof(char));
-	char *atoksecret = (char *)malloc(bufsize * sizeof(char));
+	ckey = (char *)malloc(bufsize * sizeof(char));
+	csecret = (char *)malloc(bufsize * sizeof(char));
+	atok = (char *)malloc(bufsize * sizeof(char));
+	atoksecret = (char *)malloc(bufsize * sizeof(char));
 	read_auth_keys(keyfile, bufsize, ckey, csecret, atok, atoksecret);
-
 	if(ckey == NULL || csecret == NULL ||
 			atok == NULL || atoksecret == NULL)
 	{
@@ -141,16 +165,21 @@ int main(int argc, char *argv[])
 	}
 	
 	// Sign the URL with OAuth
-	char *postargs;
-	char *signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
+	// =======================
+	// Note that all parameters will be stripped from the URL
+	// and added to postargs automatically
+	signedurl = oauth_sign_url2(url, &postargs, OA_HMAC, "POST", ckey, csecret, atok, atoksecret);
 
-	curl_global_init(CURL_GLOBAL_ALL);
-	CURL *curl = curl_easy_init();
-
+	// Initialize the idle timer
+	// =========================
 	struct idletimer timeout;
 	timeout.lastdl = 1;
 	timeout.idlestart = 0;
 
+	// Initialize libcURL
+	// ==================
+	curl_global_init(CURL_GLOBAL_ALL);
+	CURL *curl = curl_easy_init();
 	config_curlopts(curl, signedurl, postargs, out, (void *)&timeout);
 
 	int curlstatus, httpstatus;
@@ -285,6 +314,7 @@ void read_auth_keys(const char *filename, int bufsize,
 /* config_curlopts
  * curl: cURL easy handle
  * url: URL of streaming endpoint
+ * postargs: POST parameters
  * outfile: file stream for retrieved data
  * prog_data: data to send to progress callback function
  */
@@ -311,8 +341,7 @@ void config_curlopts(CURL *curl, const char *url, char *postargs, FILE *outfile,
 }
 
 /* reconnect_wait
- * bool_httperror: whether this was an http error or
- * 		not (i.e. it was a socket error)
+ * error: type of error we're recovering from
  */
 void reconnect_wait(error_type error)
 {
