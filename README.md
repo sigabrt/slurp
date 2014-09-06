@@ -14,9 +14,7 @@ Running
 ./slurp [options] keys.txt [optional output file]
 
 Available options:
-* -s: connect to the statuses/sample endpoint (default)
-* -f: connect to the statuses/filter endpoint
-* -k keyword: add a filter keyword
+* -k keyword: add a filter phrase (multiple phrases can be added using multiple -k parameters)
 
 keys.txt (or whatever you choose to call it) is a plain text file containing your Twitter OAuth app information, in this order:
 * Consumer key

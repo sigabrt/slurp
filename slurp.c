@@ -81,13 +81,8 @@ int main(int argc, char *argv[])
 	{
 		switch(opt)
 		{
-			case 's':
-				endpoint = SAMPLE_URL;
-				break;
-			case 'f':
-				endpoint = FILTER_URL;
-				break;
 			case 'k':
+				endpoint = FILTER_URL;
 				if(keyword_count >= MAX_KEYWORDS)
 				{
 					break;
@@ -115,7 +110,7 @@ int main(int argc, char *argv[])
 	}
 	else
 	{
-		fprintf(stderr, "usage: %s [-f -s] keyfile [outfile]\n", argv[0]);
+		fprintf(stderr, "usage: %s [-k 'search phrase'] keyfile [outfile]\n", argv[0]);
 		return 1;
 	}
 
