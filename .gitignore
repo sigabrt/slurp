@@ -1,4 +1,5 @@
 *.o
 keys.txt
 slurp
+*.swp
 
